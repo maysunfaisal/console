@@ -39,6 +39,7 @@ import {
   GitTypes,
   GitReadableTypes,
   Resources,
+  DevfileSuggestedResources,
 } from './import-types';
 
 export const generateSecret = () => {
@@ -407,6 +408,191 @@ export const createOrUpdateDeploymentConfig = (
     : k8sCreate(DeploymentConfigModel, deploymentConfig, dryRun ? dryRunOpt : {});
 };
 
+export const createOrUpdateDevfileImageStream = (
+  devfileImageStream: K8sResourceKind,
+  dryRun: boolean,
+  originalImageStream?: K8sResourceKind,
+  verb: K8sVerb = 'create',
+): Promise<K8sResourceKind> => {
+  const imageStream = mergeData(originalImageStream, devfileImageStream);
+  return verb === 'update'
+    ? k8sUpdate(ImageStreamModel, imageStream)
+    : k8sCreate(ImageStreamModel, devfileImageStream, dryRun ? dryRunOpt : {});
+};
+
+export const createOrUpdateDevfileBuildResource = (
+  devfileBuildResource: K8sResourceKind,
+  dryRun: boolean,
+  originalBuildConfig?: K8sResourceKind,
+  verb: K8sVerb = 'create',
+): Promise<K8sResourceKind> => {
+  const buildResource = mergeData(originalBuildConfig, devfileBuildResource);
+
+  return verb === 'update'
+    ? k8sUpdate(BuildConfigModel, buildResource)
+    : k8sCreate(BuildConfigModel, buildResource, dryRun ? dryRunOpt : {});
+};
+
+export const createOrUpdateDevfileDeployResource = (
+  devfileDeployResource: K8sResourceKind,
+  dryRun: boolean,
+  originalDeployment?: K8sResourceKind,
+  verb: K8sVerb = 'create',
+): Promise<K8sResourceKind> => {
+  const deployment = mergeData(originalDeployment, devfileDeployResource);
+
+  return verb === 'update'
+    ? k8sUpdate(DeploymentModel, deployment)
+    : k8sCreate(DeploymentModel, deployment, dryRun ? dryRunOpt : {});
+};
+
+export const createOrUpdateDevfileService = (
+  devfileService: K8sResourceKind,
+  dryRun: boolean,
+  originalService?: K8sResourceKind,
+  verb: K8sVerb = 'create',
+): Promise<K8sResourceKind> => {
+  const service = mergeData(originalService, devfileService);
+
+  return verb === 'update'
+    ? k8sUpdate(ServiceModel, service)
+    : k8sCreate(ServiceModel, service, dryRun ? dryRunOpt : {});
+};
+
+export const createOrUpdateDevfileRoute = (
+  devfileRoute: K8sResourceKind,
+  name: string,
+  namespace: string,
+  dryRun: boolean,
+  verb: K8sVerb = 'create',
+  canCreateRoute: boolean,
+  disable: boolean,
+  originalRoute?: K8sResourceKind,
+): Promise<K8sResourceKind> => {
+  const route = mergeData(originalRoute, devfileRoute);
+
+  if (verb === 'update' && disable) {
+    return k8sUpdate(RouteModel, route, namespace, name);
+  }
+  if (canCreateRoute) {
+    return k8sCreate(RouteModel, route, dryRun ? dryRunOpt : {});
+  }
+
+  return null;
+};
+
+export const createDevfileWebhookSecret = (
+  devfileWebhookSecret: K8sResourceKind,
+  dryRun: boolean,
+): Promise<K8sResourceKind> => {
+  return k8sCreate(SecretModel, devfileWebhookSecret, dryRun ? dryRunOpt : {});
+};
+
+export const createOrUpdateDevfileResources = async (
+  formData: GitImportFormData,
+  dryRun: boolean,
+  appResources: AppResources,
+  verb: K8sVerb = 'create',
+  generatedImageStreamName: string = '',
+  originalBuildConfig?: K8sResourceKind,
+  originalDeployment?: K8sResourceKind,
+): Promise<K8sResourceKind[]> => {
+  const {
+    name,
+    project: { name: namespace },
+    application: { name: applicationName },
+    route: { disable, create: canCreateRoute },
+    git: { url: repository, ref = 'master' },
+    devfile: { devfileSuggestedResources },
+    image: { tag: selectedTag },
+  } = formData;
+
+  const imageStreamList = appResources?.imageStream?.data;
+  const imageStreamFilterData = _.orderBy(imageStreamList, ['metadata.resourceVersion'], ['desc']);
+  const originalImageStream = (imageStreamFilterData.length && imageStreamFilterData[0]) || {};
+  // const imageStreamName = imageStream && imageStream.metadata.name;
+  const defaultLabels = getAppLabels({ name, applicationName, selectedTag });
+  const defaultAnnotations = {
+    ...getGitAnnotations(repository, ref),
+    isFromDevfile: true,
+  };
+
+  const originalService = _.get(appResources, 'service.data');
+
+  const originalRoute = _.get(appResources, 'route.data');
+
+  const devfileResourceObjects: DevfileSuggestedResources = Object.keys(
+    devfileSuggestedResources,
+  ).reduce((acc: DevfileSuggestedResources, resourceType: string) => {
+    const resource: K8sResourceKind = devfileSuggestedResources[resourceType];
+    return {
+      ...acc,
+      [resourceType]: {
+        ...resource,
+        metadata: {
+          ...resource.metadata,
+          annotations: {
+            ...defaultAnnotations,
+            ...resource.metadata.annotations,
+          },
+          name,
+          namespace,
+          labels: {
+            ...defaultLabels,
+            ...resource.metadata.labels,
+          },
+        },
+      },
+    };
+  }, {} as DevfileSuggestedResources);
+
+  return Promise.all([
+    createOrUpdateDevfileImageStream(
+      devfileResourceObjects.imageStream,
+      dryRun,
+      originalImageStream,
+      generatedImageStreamName ? 'create' : verb,
+    ),
+
+    createOrUpdateDevfileBuildResource(
+      devfileResourceObjects.buildResource,
+      dryRun,
+      originalBuildConfig,
+      generatedImageStreamName ? 'create' : verb,
+    ),
+
+    // createDevfileWebhookSecret(
+    //   devfileResourceObjects.webhookSecret,
+    //   dryRun,
+    // ),
+
+    createOrUpdateDevfileDeployResource(
+      devfileResourceObjects.deployResource,
+      dryRun,
+      originalDeployment,
+      generatedImageStreamName ? 'create' : verb,
+    ),
+
+    createOrUpdateDevfileService(
+      devfileResourceObjects.service,
+      dryRun,
+      originalService,
+      generatedImageStreamName ? 'create' : verb,
+    ),
+
+    createOrUpdateDevfileRoute(
+      devfileResourceObjects.route,
+      name,
+      namespace,
+      dryRun,
+      generatedImageStreamName ? 'create' : verb,
+      canCreateRoute,
+      disable,
+      originalRoute,
+    ),
+  ]);
+};
+
 export const createOrUpdateResources = async (
   formData: GitImportFormData,
   imageStream: K8sResourceKind,
@@ -445,6 +631,20 @@ export const createOrUpdateResources = async (
     verb === 'update'
   ) {
     generatedImageStreamName = `${name}-${getRandomChars()}`;
+  }
+
+  if (buildStrategy === 'Devfile') {
+    const port = { containerPort: 8080, protocol: 'TCP' };
+    formData.image.ports = [port];
+    return createOrUpdateDevfileResources(
+      formData,
+      dryRun,
+      appResources,
+      verb,
+      generatedImageStreamName,
+      _.get(appResources, 'buildConfig.data'),
+      _.get(appResources, 'editAppResource.data'),
+    );
   }
 
   requests.push(

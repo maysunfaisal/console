@@ -24,11 +24,18 @@ import SampleRepo from './SampleRepo';
 import AdvancedGitOptions from './AdvancedGitOptions';
 
 export interface GitSectionProps {
+  customGitError?: { body: string; title: string };
   showSample?: boolean;
+  buildStrategy?: string;
   builderImages: NormalizedBuilderImages;
 }
 
-const GitSection: React.FC<GitSectionProps> = ({ showSample, builderImages }) => {
+const GitSection: React.FC<GitSectionProps> = ({
+  customGitError,
+  showSample,
+  buildStrategy,
+  builderImages,
+}) => {
   const { t } = useTranslation();
   const { values, setFieldValue, setFieldTouched, touched, dirty } = useFormikContext<
     FormikValues
@@ -57,20 +64,46 @@ const GitSection: React.FC<GitSectionProps> = ({ showSample, builderImages }) =>
 
       const gitService = getGitService({ url, ref }, gitType as GitProvider);
       const isReachable = gitService && (await gitService.isRepoReachable());
-      setFieldValue('git.isUrlValidating', false);
+
       setIsRepoReachable(isReachable);
+      setFieldValue('git.isUrlValidating', false);
+
       if (isReachable) {
-        setValidated(ValidatedOptions.success);
-        gitRepoName && !values.name && setFieldValue('name', gitRepoName);
-        gitRepoName &&
-          !values.application.name &&
-          values.application.selectedKey !== UNASSIGNED_KEY &&
-          setFieldValue('application.name', `${gitRepoName}-app`);
+        if (buildStrategy === 'Devfile') {
+          const isDevfilePresent = gitService && (await gitService.isDevfilePresent());
+          if (!isDevfilePresent) {
+            setFieldValue('devfile.devfilePath', null);
+            setFieldValue('devfile.devfileContent', null);
+            setFieldValue('devfile.devfileHasError', true);
+            setValidated(ValidatedOptions.error);
+          } else {
+            const devfileContents = gitService && (await gitService.getDevfileContent());
+
+            gitRepoName && !values.name && setFieldValue('name', gitRepoName);
+            gitRepoName &&
+              !values.application.name &&
+              values.application.selectedKey !== UNASSIGNED_KEY &&
+              setFieldValue('application.name', `${gitRepoName}-app`);
+
+            setFieldValue('devfile.devfilePath', `${url}/devfile.yaml`);
+            setFieldValue('devfile.devfileContent', devfileContents);
+            setFieldValue('devfile.devfileHasError', false);
+            setValidated(ValidatedOptions.success);
+          }
+        } else {
+          setValidated(ValidatedOptions.success);
+          gitRepoName && !values.name && setFieldValue('name', gitRepoName);
+          gitRepoName &&
+            !values.application.name &&
+            values.application.selectedKey !== UNASSIGNED_KEY &&
+            setFieldValue('application.name', `${gitRepoName}-app`);
+        }
       } else {
         setValidated(ValidatedOptions.warning);
       }
     },
     [
+      buildStrategy,
       gitTypeTouched,
       setFieldTouched,
       setFieldValue,
@@ -176,7 +209,9 @@ const GitSection: React.FC<GitSectionProps> = ({ showSample, builderImages }) =>
     if (values.git.isUrlValidating) {
       return `${t('devconsole~Validating')}...`;
     }
-
+    if (buildStrategy === 'Devfile' && validated === ValidatedOptions.error) {
+      return 'No devfile present, unable to continue';
+    }
     if (validated === ValidatedOptions.success) {
       return t('devconsole~Validated');
     }
@@ -245,6 +280,11 @@ const GitSection: React.FC<GitSectionProps> = ({ showSample, builderImages }) =>
             </Alert>
           )}
         </>
+      )}
+      {customGitError && (
+        <Alert isInline variant="danger" title={customGitError.title}>
+          {customGitError.body}
+        </Alert>
       )}
       <AdvancedGitOptions />
     </FormSection>
