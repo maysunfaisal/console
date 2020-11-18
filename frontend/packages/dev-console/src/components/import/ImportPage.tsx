@@ -3,7 +3,8 @@ import { RouteComponentProps } from 'react-router-dom';
 import Helmet from 'react-helmet';
 import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
-import { PageHeading, Firehose, FirehoseResource } from '@console/internal/components/utils';
+import { PageHeading, Firehose, FirehoseResource, BuildStrategy } from '@console/internal/components/utils';
+import DevPreviewBadge from '@console/shared/src/components/badges/DevPreviewBadge';
 import { ImageStreamModel } from '@console/internal/models';
 import { QUERY_PROPERTIES } from '../../const';
 import NamespacedPage, { NamespacedPageVariants } from '../NamespacedPage';
@@ -27,6 +28,13 @@ const ImportFlows = (t: TFunction): { [name: string]: ImportData } => ({
     buildStrategy: 'Docker',
     loader: () =>
       import('./GitImportForm' /* webpackChunkName: "git-import-form" */).then((m) => m.default),
+  },
+  devfile: {
+    type: ImportTypes.devfile,
+    title: 'Import from devfile',
+    buildStrategy: 'Devfile',
+    loader: () =>
+      import('./DevfileImportForm' /* webpackChunkName: "devfile-import-form" */).then((m) => m.default),
   },
   s2i: {
     type: ImportTypes.s2i,
@@ -75,6 +83,15 @@ const ImportPage: React.FunctionComponent<ImportPageProps> = ({ match, location 
         isList: true,
       },
     ];
+  } else if (importType === ImportTypes.devfile) {
+    importData = ImportFlows(t).devfile;
+    resources = [
+      {
+        kind: 'Project',
+        prop: 'projects',
+        isList: true,
+      },
+    ];
   } else {
     importData = ImportFlows(t).git;
     resources = [
@@ -99,7 +116,10 @@ const ImportPage: React.FunctionComponent<ImportPageProps> = ({ match, location 
           <Helmet>
             <title>{importData.title}</title>
           </Helmet>
-          <PageHeading title={importData.title} />
+          {importType === ImportTypes.devfile
+            ? <PageHeading title={importData.title} badge={<DevPreviewBadge />} />
+            : <PageHeading title={importData.title} />
+          }
           <div className="co-m-pane__body" style={{ paddingBottom: 0 }}>
             <Firehose resources={resources}>
               <ImportForm

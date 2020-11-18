@@ -9,7 +9,7 @@ import {
   ServiceModel,
   RouteModel,
 } from '@console/internal/models';
-import { k8sCreate, K8sResourceKind, k8sUpdate, K8sVerb } from '@console/internal/module/k8s';
+import { k8sCreate, devfileCreate, K8sResourceKind, k8sUpdate, K8sVerb } from '@console/internal/module/k8s';
 import { ServiceModel as KnServiceModel } from '@console/knative-plugin';
 import { getKnativeServiceDepResource } from '@console/knative-plugin/src/utils/create-knative-utils';
 import { SecretType } from '@console/internal/components/secrets/create-secret';
@@ -33,12 +33,14 @@ import { getProbesData } from '../health-checks/create-health-checks-probe-utils
 import { AppResources } from '../edit-application/edit-application-types';
 import {
   GitImportFormData,
+  DeployImageFormData,
   ProjectData,
   GitTypes,
   GitReadableTypes,
   Resources,
 } from './import-types';
 import { Perspective } from '@console/plugin-sdk';
+import { makePortName } from './imagestream-utils';
 
 export const generateSecret = () => {
   // http://stackoverflow.com/questions/105034/create-guid-uuid-in-javascript
@@ -59,6 +61,259 @@ export const createProject = (projectData: ProjectData): Promise<K8sResourceKind
   };
 
   return k8sCreate(ProjectRequestModel, project);
+};
+
+export const createOrUpdateDevfileResources = async (
+  formData: GitImportFormData,
+  imageStream: K8sResourceKind,
+  dryRun: boolean,
+  appResources: AppResources,
+  verb: K8sVerb = 'create',
+  generatedImageStreamName: string = '',
+  isFromDevfile?: boolean,
+  originalBuildConfig?: K8sResourceKind,
+  originalDeployment?: K8sResourceKind,
+  originalDeploymentConfig?: K8sResourceKind,
+  imageStreamData?: K8sResourceKind,
+): Promise<K8sResourceKind[]> => {
+  const {
+    name,
+    project: { name: namespace },
+    application: { name: applicationName },
+    // route: { create: canCreateRoute, disable },
+    route: {
+      disable,
+      create: canCreateRoute,
+      targetPort: routeTargetPort,
+      unknownTargetPort,
+      defaultUnknownPort,
+      path,
+      hostname,
+      secure,
+      tls,
+    },
+    build: {
+      env: buildEnv,
+      strategy: buildStrategy,
+      triggers: { webhook: webhookTrigger },
+    },
+    deployment: {
+      env: deployEnv,
+      replicas,
+      triggers: { image: imageChange },
+    },
+    git: { url: repository, type: gitType, ref = 'master', dir: contextDir, secret: secretName },
+    devfile: { devfileContent, devfilePath },
+    docker: { dockerfilePath },
+    image: { ports: imagePorts, tag: selectedTag },
+    labels: userLabels,
+    limits: { cpu, memory },
+    pipeline,
+    resources,
+    healthChecks,
+  } = formData;
+
+  const requests: Promise<K8sResourceKind>[] = [];
+
+  const imageStreamList = appResources?.imageStream?.data;
+  const imageStreamFilterData = _.orderBy(imageStreamList, ['metadata.resourceVersion'], ['desc']);
+  const originalImageStream = (imageStreamFilterData.length && imageStreamFilterData[0]) || {};
+  const imageStreamName = imageStream && imageStream.metadata.name;
+  const defaultLabels = getAppLabels({ name, applicationName, imageStreamName, selectedTag });
+  const defaultAnnotations = { ...getGitAnnotations(repository, ref), ...getCommonAnnotations(), isFromDevfile };
+
+  const webhookTriggerData = {
+    type: GitReadableTypes[gitType],
+    [gitType]: {
+      secretReference: { name: `${name}-${gitType}-webhook-secret` },
+    },
+  };
+
+  const annotations = {
+    ...getGitAnnotations(repository, ref),
+    ...getCommonAnnotations(),
+    'alpha.image.policy.openshift.io/resolve-names': '*',
+    ...getTriggerAnnotation(name, namespace, imageChange),
+  };
+
+  const podLabels = getPodLabels(name);
+  let ProbesData = getProbesData(healthChecks)
+
+  const originalService = _.get(appResources, 'service.data');
+
+  const originalRoute = _.get(appResources, 'route.data');
+
+  let webhookSecret = generateSecret();
+
+    const devfileData = {
+      name: name,
+      namespace: namespace,
+      project: { name: namespace },
+      application: { name: applicationName },
+      route: { create: canCreateRoute, disable },
+      build: {
+        buildEnv,
+        strategy: buildStrategy,
+        triggers: { webhook: webhookTrigger },
+      },
+      deployment: {
+        deployEnv,
+        replicas,
+        triggers: { image: imageChange },
+      },
+      git: { url: repository, type: gitType, ref, dir: contextDir, secret: secretName },
+      devfile: { devfileContent, devfilePath },
+      docker: { dockerfilePath },
+      image: { ports: imagePorts, tag: selectedTag },
+      userLabels: userLabels,
+      limits: { cpu, memory },
+      pipeline: pipeline,
+      resources: resources,
+      healthchecks: healthChecks,
+      routeSpec: { hostname, secure, path, tls, targetPort: imagePorts },
+      imageStreamName: imageStreamName,
+      generatedImageStreamName: generatedImageStreamName,
+      defaultLabels: defaultLabels,
+      annotations: annotations,
+      defaultAnnotations: defaultAnnotations,
+      webhookTriggerData: webhookTriggerData,
+      webhookSecret: webhookSecret,
+      probesData: ProbesData,
+      podLabels: podLabels,
+    };
+
+    let devfileResourceObjects = await devfileCreate(null, devfileData, dryRun ? dryRunOpt : {});
+
+
+    requests.push(
+      createOrUpdateDevfileImageStream(
+        devfileResourceObjects.imageStream,
+        dryRun,
+        originalImageStream,
+        generatedImageStreamName ? 'create' : verb,
+      ),
+
+      createOrUpdateDevfileBuildResource(
+        devfileResourceObjects.buildResource,
+        dryRun,
+        originalBuildConfig,
+        generatedImageStreamName ? 'create' : verb,
+      ),
+
+      // createDevfileWebhookSecret(
+      //   devfileResourceObjects.webhookSecret,
+      //   dryRun,
+      // ),
+
+      createOrUpdateDevfileDeployResource(
+        devfileResourceObjects.deployResource,
+        dryRun,
+        originalDeployment,
+        generatedImageStreamName ? 'create' : verb,
+      ),
+
+      createOrUpdateDevfileService(
+        devfileResourceObjects.service,
+        dryRun,
+        originalService,
+        generatedImageStreamName ? 'create' : verb,
+      ),
+
+      createOrUpdateDevfileRoute(
+        devfileResourceObjects.route,
+        devfileData.name,
+        devfileData.namespace,
+        dryRun,
+        generatedImageStreamName ? 'create' : verb,
+        devfileData.route.create,
+        devfileData.route.disable,
+        originalRoute,
+      ),
+    );
+
+    return Promise.all(requests);
+}
+
+
+export const createOrUpdateDevfileImageStream = (
+  devfileImageStream: K8sResourceKind,
+  dryRun: boolean,
+  originalImageStream?: K8sResourceKind,
+  verb: K8sVerb = 'create',
+): Promise<K8sResourceKind> => {
+  const imageStream = mergeData(originalImageStream, devfileImageStream);
+  return verb === 'update'
+    ? k8sUpdate(ImageStreamModel, imageStream)
+    : k8sCreate(ImageStreamModel, devfileImageStream, dryRun ? dryRunOpt : {});
+};
+
+
+export const createOrUpdateDevfileBuildResource = (
+  devfileBuildResource: K8sResourceKind,
+  dryRun: boolean,
+  originalBuildConfig?: K8sResourceKind,
+  verb: K8sVerb = 'create',
+): Promise<K8sResourceKind> => {
+  const buildResource = mergeData(originalBuildConfig, devfileBuildResource);
+
+  return verb === 'update'
+  // Need a switch case here to choose proper model kind for building resource on cluster, will require defining models for all expected kinds of build objects
+    ? k8sUpdate(BuildConfigModel, buildResource)
+    : k8sCreate(BuildConfigModel, buildResource, dryRun ? dryRunOpt : {});
+};
+
+export const createOrUpdateDevfileDeployResource = (
+  devfileDeployResource: K8sResourceKind,
+  dryRun: boolean,
+  originalDeployment?: K8sResourceKind,
+  verb: K8sVerb = 'create',
+): Promise<K8sResourceKind> => {
+  const deployment = mergeData(originalDeployment, devfileDeployResource);
+
+  return verb === 'update'
+  // Need a switch case here to choose proper model kind for building resource on cluster, will require defining models for all expected kinds of build objects
+    ? k8sUpdate(DeploymentModel, deployment)
+    : k8sCreate(DeploymentModel, deployment, dryRun ? dryRunOpt : {});
+};
+
+export const createOrUpdateDevfileService = (
+  devfileService: K8sResourceKind,
+  dryRun: boolean,
+  originalService?: K8sResourceKind,
+  verb: K8sVerb = 'create',
+): Promise<K8sResourceKind> => {
+  const service = mergeData(originalService, devfileService);
+
+  return verb === 'update'
+  ? k8sUpdate(ServiceModel, service)
+  : k8sCreate(ServiceModel, service, dryRun ? dryRunOpt : {});
+};
+
+export const createOrUpdateDevfileRoute = (
+  devfileRoute: K8sResourceKind,
+  name: string,
+  namespace: string,
+  dryRun: boolean,
+  verb: K8sVerb = 'create',
+  canCreateRoute: boolean,
+  disable: boolean,
+  originalRoute?: K8sResourceKind,
+): Promise<K8sResourceKind> => {
+  const route = mergeData(originalRoute, devfileRoute);
+
+  if (verb === 'update' && disable) {
+    return k8sUpdate(RouteModel, route, namespace, name);
+  } else if (canCreateRoute) {
+    return k8sCreate(RouteModel, route, dryRun ? dryRunOpt : {});
+  }
+};
+
+export const createDevfileWebhookSecret = (
+  devfileWebhookSecret: K8sResourceKind,
+  dryRun: boolean,
+): Promise<K8sResourceKind> => {
+  return k8sCreate(SecretModel, devfileWebhookSecret, dryRun ? dryRunOpt : {});
+
 };
 
 export const createOrUpdateImageStream = (
@@ -123,6 +378,8 @@ export const createWebhookSecret = (
 
   return k8sCreate(SecretModel, webhookSecret, dryRun ? dryRunOpt : {});
 };
+
+
 
 export const createOrUpdateBuildConfig = (
   formData: GitImportFormData,
@@ -413,6 +670,7 @@ export const createOrUpdateResources = async (
   dryRun: boolean = false,
   verb: K8sVerb = 'create',
   appResources?: AppResources,
+  isFromDevfile?: boolean,
 ): Promise<K8sResourceKind[]> => {
   const {
     name,
@@ -444,6 +702,23 @@ export const createOrUpdateResources = async (
     verb === 'update'
   ) {
     generatedImageStreamName = `${name}-${getRandomChars()}`;
+  }
+
+  if (buildStrategy === 'Devfile'){
+    const port = { containerPort: 8080, protocol: 'TCP' };
+    formData.image.ports = [port];
+    return createOrUpdateDevfileResources(
+      formData,
+      imageStream,
+      dryRun,
+      appResources,
+      verb,
+      generatedImageStreamName,
+      isFromDevfile = true,
+      _.get(appResources, 'buildConfig.data'),
+      _.get(appResources, 'editAppResource.data'),
+      _.get(appResources, 'editAppResource.data'),
+    );
   }
 
   requests.push(
@@ -559,6 +834,8 @@ export const createOrUpdateResources = async (
       requests.push(k8sCreate(RouteModel, route, dryRun ? dryRunOpt : {}));
     }
   }
+
+
 
   if (webhookTrigger && verb === 'create') {
     requests.push(createWebhookSecret(formData, gitType, dryRun));

@@ -11,6 +11,7 @@ import {
 } from '@console/shared';
 import { GitReadableTypes, GitTypes } from '../import-types';
 import { detectGitType, detectGitRepoName } from '../import-validation-utils';
+import { DevfileParser } from '@console/git-service/src/utils/devfile-parser';
 import {
   getSampleRepo,
   getSampleRef,
@@ -25,10 +26,11 @@ import { BuildStrategyType } from '@console/internal/components/build';
 
 export interface GitSectionProps {
   showSample?: boolean;
+  buildStrategy? : string
   builderImages: NormalizedBuilderImages;
 }
 
-const GitSection: React.FC<GitSectionProps> = ({ showSample, builderImages }) => {
+const GitSection: React.FC<GitSectionProps> = ({ showSample, buildStrategy, builderImages }) => {
   const { t } = useTranslation();
   const { values, setFieldValue, setFieldTouched, touched, dirty } = useFormikContext<
     FormikValues
@@ -57,9 +59,38 @@ const GitSection: React.FC<GitSectionProps> = ({ showSample, builderImages }) =>
 
       const gitService = getGitService({ url, ref }, gitType as GitProvider);
       const isReachable = gitService && (await gitService.isRepoReachable());
+      const isDevfilePresent = gitService && (await gitService.isDevfilePresent());
+      const DevfileContents = gitService && (await gitService.getDevfileContent());
+      const devfileParser = new DevfileParser(DevfileContents);
+
       setFieldValue('git.isUrlValidating', false);
-      setIsRepoReachable(isReachable);
-      if (isReachable) {
+
+      if (buildStrategy === 'Devfile' ) {
+        if (isReachable && isDevfilePresent){
+          const DevfileVersion = await devfileParser.getDevfileVersion(DevfileContents)
+          const semver = require('semver')
+          if (semver.gte(DevfileVersion, '2.1.0')) {
+            gitRepoName && !values.name && setFieldValue('name', gitRepoName);
+            gitRepoName &&
+            !values.application.name &&
+            values.application.selectedKey !== UNASSIGNED_KEY &&
+            setFieldValue('application.name', `${gitRepoName}-app`);
+            setFieldValue('devfile.devfilePath', `${url}/devfile.yaml`)
+            setFieldValue('devfile.devfileContent', DevfileContents)
+            setValidated(ValidatedOptions.success);
+          }
+          else {
+            setValidated(ValidatedOptions.warning);
+          }
+        }
+        else if (isReachable && !isDevfilePresent){
+          setValidated(ValidatedOptions.warning);
+        }
+        else {
+          setValidated(ValidatedOptions.error);
+        }
+      }
+      else if (isReachable) {
         setValidated(ValidatedOptions.success);
         gitRepoName && !values.name && setFieldValue('name', gitRepoName);
         gitRepoName &&
@@ -184,6 +215,9 @@ const GitSection: React.FC<GitSectionProps> = ({ showSample, builderImages }) =>
       return t(
         'devconsole~URL is valid but cannot be reached. If this is a private repository, enter a source secret in Advanced Git Options',
       );
+    }
+    if (validated === ValidatedOptions.warning) {
+      return 'Valid URL but devfile build guidance not available.';
     }
     return '';
   };

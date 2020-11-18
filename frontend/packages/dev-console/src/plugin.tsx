@@ -52,6 +52,9 @@ import { AddAction } from './extensions/add-actions';
 import * as yamlIcon from './images/yaml.svg';
 import * as importGitIcon from './images/from-git.svg';
 import * as dockerfileIcon from './images/dockerfile.svg';
+import * as devfileIcon from './images/devfile.svg';
+import * as pipelineIcon from './images/pipeline.svg';
+import { operatorResources } from './components/topology/operators/operator-resources';
 import {
   HelmTopologyConsumedExtensions,
   helmTopologyPlugin,
@@ -696,6 +699,28 @@ const plugin: Plugin<ConsumedExtensions> = [
         ImageStreamModel,
         DeploymentConfigModel,
         ImageStreamImportsModel,
+        SecretModel,
+        RouteModel,
+        ServiceModel,
+      ].map((model) => ({
+        group: model.apiGroup || '',
+        resource: model.plural,
+        verb: 'create',
+      })),
+    },
+  },
+  {
+    type: 'AddAction',
+    properties: {
+      id: 'import-from-devfile',
+      url: '/import?importType=devfile',
+      label: 'From Devfile',
+      description: 'Import your devfile from your git repository to be built and deployed',
+      icon: devfileIcon,
+      accessReview: [
+        BuildConfigModel,
+        ImageStreamModel,
+        DeploymentConfigModel,
         SecretModel,
         RouteModel,
         ServiceModel,

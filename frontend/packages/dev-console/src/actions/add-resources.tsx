@@ -4,6 +4,7 @@ import {
   OsImageIcon,
   CatalogIcon,
   CubeIcon,
+  LayerGroupIcon,
   DatabaseIcon,
   LaptopCodeIcon,
   BoltIcon,
@@ -43,6 +44,13 @@ export const fromDockerfile = createKebabAction(
   allImportResourceAccess,
 );
 
+export const fromDevfile = createKebabAction(
+  'From Devfile',
+  <LayerGroupIcon />,
+  ImportOptions.DEVFILE,
+  allImportResourceAccess,
+);
+
 export const fromDatabaseCatalog = createKebabAction(
   'Database',
   <DatabaseIcon />,
@@ -70,6 +78,7 @@ export const addResourceMenu: KebabAction[] = [
   containerImage,
   fromDockerfile,
   fromCatalog,
+  fromDevfile,
   fromDatabaseCatalog,
   fromOperatorBacked,
   fromHelmCharts,
@@ -82,4 +91,5 @@ export const addResourceMenuWithoutCatalog: KebabAction[] = [
   containerImage,
   fromDockerfile,
   fromOperatorBacked,
+  fromDevfile,
 ];
