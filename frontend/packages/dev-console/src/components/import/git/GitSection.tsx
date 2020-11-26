@@ -65,7 +65,7 @@ const GitSection: React.FC<GitSectionProps> = ({ showSample, buildStrategy, buil
         if (isReachable && isDevfilePresent){
           const DevfileVersion = await devfileParser.getDevfileVersion(DevfileContents)
           const semver = require('semver')
-          if (semver.gte(DevfileVersion, '2.1.0')) {
+          if (semver.gte(DevfileVersion, '2.0.0')) {
             gitRepoName && !values.name && setFieldValue('name', gitRepoName);
             gitRepoName &&
             !values.application.name &&
@@ -189,9 +189,9 @@ const GitSection: React.FC<GitSectionProps> = ({ showSample, buildStrategy, buil
     if (validated === ValidatedOptions.warning) {
       return 'URL is valid but cannot be reached. If this is a private repository, enter a source secret in Advanced Git Options';
     }
-    if (validated === ValidatedOptions.warning) {
-      return 'Valid URL but devfile build guidance not available.';
-    }
+    // if (validated === ValidatedOptions.warning) {
+    //   return 'Valid URL but devfile build guidance not available.';
+    // }
     return '';
   };
 

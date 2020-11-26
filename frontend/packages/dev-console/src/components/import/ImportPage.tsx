@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { RouteComponentProps } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
-import { PageHeading, Firehose, FirehoseResource, BuildStrategy } from '@console/internal/components/utils';
+import { PageHeading, Firehose, FirehoseResource } from '@console/internal/components/utils';
 import DevPreviewBadge from '@console/shared/src/components/badges/DevPreviewBadge';
 import { ImageStreamModel } from '@console/internal/models';
 import { QUERY_PROPERTIES } from '../../const';

@@ -28,7 +28,7 @@ import { getProbesData } from '../health-checks/create-health-checks-probe-utils
 import { AppResources } from '../edit-application/edit-application-types';
 import {
   GitImportFormData,
-  DeployImageFormData,
+  // DeployImageFormData,
   ProjectData,
   GitTypes,
   GitReadableTypes,
@@ -36,7 +36,7 @@ import {
 } from './import-types';
 import { createPipelineForImportFlow } from './pipeline/pipeline-template-utils';
 import { Perspective } from '@console/plugin-sdk';
-import { makePortName } from './imagestream-utils';
+// import { makePortName } from './imagestream-utils';
 
 export const generateSecret = () => {
   // http://stackoverflow.com/questions/105034/create-guid-uuid-in-javascript
@@ -80,9 +80,9 @@ export const createOrUpdateDevfileResources = async (
     route: { 
       disable, 
       create: canCreateRoute,
-      targetPort: routeTargetPort,
-      unknownTargetPort,
-      defaultUnknownPort,
+      // targetPort: routeTargetPort,
+      // unknownTargetPort,
+      // defaultUnknownPort,
       path,
       hostname, 
       secure, 
@@ -129,7 +129,7 @@ export const createOrUpdateDevfileResources = async (
     ...getGitAnnotations(repository, ref),
     ...getCommonAnnotations(),
     'alpha.image.policy.openshift.io/resolve-names': '*',
-    ...getTriggerAnnotation(name, namespace, imageChange),
+    ...getTriggerAnnotation('mjf', namespace, imageChange),
   };
   
   const podLabels = getPodLabels(name);
@@ -699,7 +699,7 @@ export const createOrUpdateResources = async (
   }
 
   if (buildStrategy === 'Devfile'){
-    const port = { containerPort: 8080, protocol: 'TCP' };
+    const port = { containerPort: 3000, protocol: 'TCP' };
     formData.image.ports = [port];
     return createOrUpdateDevfileResources(
       formData,

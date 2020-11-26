@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
@@ -26,6 +27,8 @@ var (
 
 func (s *Server) devfileHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&data)
+
+	log.Printf(">>> MJF data is %+v\n\n", data)
 
 	// Get devfile contents and parse them using a library call in the future
 	// devfileContentBytes := []byte(data.Devfile.DevfileContent)
@@ -54,7 +57,7 @@ func getImageStream() imagev1.ImageStream {
 
 	imageStream := imagev1.ImageStream{
 		TypeMeta:   createTypeMeta("ImageStream", "image.openshift.io/v1"),
-		ObjectMeta: createObjectMeta(data.Name, data.Namespace, addmap(data.DefaultLabels, data.UserLabls), data.Annotations),
+		ObjectMeta: createObjectMeta("mjf", data.Namespace, addmap(data.DefaultLabels, data.UserLabls), data.Annotations),
 	}
 	return imageStream
 }
@@ -69,7 +72,7 @@ func getBuildResource() buildv1.BuildConfig {
 				Output: buildv1.BuildOutput{
 					To: &corev1.ObjectReference{
 						Kind: "ImageStreamTag",
-						Name: data.Name + ":latest",
+						Name: "mjf:latest",
 					},
 				},
 				Source: buildv1.BuildSource{
@@ -113,7 +116,7 @@ func getDeployResource() appsv1.Deployment {
 					Containers: []corev1.Container{
 						{
 							Name:  data.Name,
-							Image: data.Name + ":latest",
+							Image: "mjf:latest",
 							Ports: data.Image.Ports,
 							Env:   data.Deployment.Env,
 							Resources: corev1.ResourceRequirements{
@@ -129,6 +132,9 @@ func getDeployResource() appsv1.Deployment {
 			},
 		},
 	}
+
+	log.Printf(">>> MJF data.Name is %v\n\n", data.Name)
+	log.Printf(">>> MJF deployment is %+v\n\n", deployment)
 
 	return deployment
 }
