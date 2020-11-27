@@ -33,14 +33,14 @@ import { getProbesData } from '../health-checks/create-health-checks-probe-utils
 import { AppResources } from '../edit-application/edit-application-types';
 import {
   GitImportFormData,
-  DeployImageFormData,
+  // DeployImageFormData,
   ProjectData,
   GitTypes,
   GitReadableTypes,
   Resources,
 } from './import-types';
 import { Perspective } from '@console/plugin-sdk';
-import { makePortName } from './imagestream-utils';
+// import { makePortName } from './imagestream-utils';
 
 export const generateSecret = () => {
   // http://stackoverflow.com/questions/105034/create-guid-uuid-in-javascript
@@ -84,9 +84,9 @@ export const createOrUpdateDevfileResources = async (
     route: {
       disable,
       create: canCreateRoute,
-      targetPort: routeTargetPort,
-      unknownTargetPort,
-      defaultUnknownPort,
+      // targetPort: routeTargetPort,
+      // unknownTargetPort,
+      // defaultUnknownPort,
       path,
       hostname,
       secure,
@@ -133,7 +133,7 @@ export const createOrUpdateDevfileResources = async (
     ...getGitAnnotations(repository, ref),
     ...getCommonAnnotations(),
     'alpha.image.policy.openshift.io/resolve-names': '*',
-    ...getTriggerAnnotation(name, namespace, imageChange),
+    ...getTriggerAnnotation("maysun", namespace, imageChange),
   };
 
   const podLabels = getPodLabels(name);

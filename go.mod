@@ -6,13 +6,14 @@ require (
 	github.com/coreos/dex v2.3.0+incompatible
 	github.com/coreos/go-oidc v2.1.0+incompatible
 	github.com/coreos/pkg v0.0.0-20180928190104-399ea9e2e55f
+	github.com/devfile/api v0.0.0-20201126204309-ec222215253e
+	github.com/devfile/library v0.0.0-20201125155652-6eabeab3ee52
 	github.com/ghodss/yaml v1.0.1-0.20190212211648-25d852aebe32 // indirect
 	github.com/gorilla/websocket v1.4.0
 	github.com/graph-gophers/graphql-go v0.0.0-20200309224638-dae41bde9ef9
 	github.com/mattn/go-colorable v0.1.2 // indirect
 	github.com/mattn/go-isatty v0.0.12 // indirect
 	github.com/mitchellh/reflectwalk v1.0.1 // indirect
-	github.com/onsi/gomega v1.8.1 // indirect
 	github.com/openshift/api v3.9.0+incompatible
 	github.com/openshift/library-go v0.0.0-20200402123743-4015ba624cae
 	github.com/pquerna/cachecontrol v0.0.0-20180517163645-1555304b9b35 // indirect

@@ -53,8 +53,8 @@ import * as yamlIcon from './images/yaml.svg';
 import * as importGitIcon from './images/from-git.svg';
 import * as dockerfileIcon from './images/dockerfile.svg';
 import * as devfileIcon from './images/devfile.svg';
-import * as pipelineIcon from './images/pipeline.svg';
-import { operatorResources } from './components/topology/operators/operator-resources';
+// import * as pipelineIcon from './images/pipeline.svg';
+// import { operatorResources } from './components/topology/operators/operator-resources';
 import {
   HelmTopologyConsumedExtensions,
   helmTopologyPlugin,

@@ -92,6 +92,7 @@ export const devfileCreate =  async (kind, data, opts = {}) =>  {
   };
   
   let devfileResourceObjectsString = await coFetchJSON.post("/api/devfile/",data,);
+  console.log(">>> MJF endpoint respoonse ", devfileResourceObjectsString)
   let devfileResources = JSON.parse(devfileResourceObjectsString.devfileResources);
   
   return devfileResources;
