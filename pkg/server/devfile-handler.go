@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 
 	buildv1 "github.com/openshift/api/build/v1"
 	imagev1 "github.com/openshift/api/image/v1"
@@ -12,8 +11,12 @@ import (
 	"github.com/openshift/console/pkg/serverutils"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	intstr "k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/intstr"
+
+	devfilev1 "github.com/devfile/api/pkg/apis/workspaces/v1alpha2"
+	devfilePkg "github.com/devfile/library/pkg/devfile"
+	"github.com/devfile/library/pkg/devfile/generator"
+	"github.com/devfile/library/pkg/devfile/parser"
 )
 
 const (
@@ -21,25 +24,48 @@ const (
 )
 
 var (
-	data formData
+	data       formData
+	devfileObj parser.DevfileObj
 )
 
 func (s *Server) devfileHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&data)
 
+	var err error
+
 	// Get devfile contents and parse them using a library call in the future
-	// devfileContentBytes := []byte(data.Devfile.DevfileContent)
+	devfileContentBytes := []byte(data.Devfile.DevfileContent)
+	devfileObj, err = devfilePkg.ParseFromDataAndValidate(devfileContentBytes)
+	if err != nil {
+		serverutils.SendResponse(w, http.StatusInternalServerError, serverutils.ApiError{Err: fmt.Sprintf("Failed to parse devfile: %v", err)})
+	}
+
+	containerComponents := devfileObj.Data.GetDevfileContainerComponents() //TODO: filter thru Console attribute, right now if there is more than one component container err out
+	if len(containerComponents) > 1 {
+		serverutils.SendResponse(w, http.StatusInternalServerError, serverutils.ApiError{Err: fmt.Sprintf("Console Devfile Import Dev Preview, supports only one component container")})
+	}
+
+	deploymentResource, err := getDeployResource()
+	if err != nil {
+		serverutils.SendResponse(w, http.StatusInternalServerError, serverutils.ApiError{Err: fmt.Sprintf("Failed to get deployment resource for the devfile: %v", err)})
+	}
+
+	service, err := getService()
+	if err != nil {
+		serverutils.SendResponse(w, http.StatusInternalServerError, serverutils.ApiError{Err: fmt.Sprintf("Failed to get service for the devfile: %v", err)})
+	}
 
 	devfileResources := devfileResources{ // Replace calls with call to library functions, these can also be made arrays if expecting multiple objects
-		ImageStream:    getImageStream(),
-		BuildResource:  getBuildResource(),
-		DeployResource: getDeployResource(),
-		Service:        getService(),
-		Route:          getRoute(),
+		ImageStream:    getImageStream(containerComponents),
+		BuildResource:  getBuildResource(containerComponents),
+		DeployResource: deploymentResource,
+		Service:        service,
+		Route:          getRoutes(containerComponents),
 	}
 
 	devfileResourcesJSON, err := json.Marshal(devfileResources)
 	if err != nil {
+		serverutils.SendResponse(w, http.StatusInternalServerError, serverutils.ApiError{Err: fmt.Sprintf("Failed to marshall console devfile resources: %v", err)})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -50,135 +76,105 @@ func (s *Server) devfileHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func getImageStream() imagev1.ImageStream {
+func getImageStream(containerComponents []devfilev1.Component) imagev1.ImageStream {
 
-	imageStream := imagev1.ImageStream{
-		TypeMeta:   createTypeMeta("ImageStream", "image.openshift.io/v1"),
-		ObjectMeta: createObjectMeta(data.Name, data.Namespace, addmap(data.DefaultLabels, data.UserLabls), data.Annotations),
+	imageStreamParams := generator.ImageStreamParams{
+		TypeMeta:   generator.GetTypeMeta("ImageStream", "image.openshift.io/v1"),
+		ObjectMeta: generator.GetObjectMeta(data.Name, data.Namespace, addmap(data.DefaultLabels, data.UserLabls), data.Annotations), // TODO Post Dev Preview. image stream name should be able to be that of the devfile image name.
 	}
+	imageStream := generator.GetImageStream(imageStreamParams)
 	return imageStream
 }
 
-func getBuildResource() buildv1.BuildConfig {
+func getBuildResource(containerComponents []devfilev1.Component) buildv1.BuildConfig {
 
-	buildConfig := buildv1.BuildConfig{
-		TypeMeta:   createTypeMeta("BuildConfig", "build.openshift.io/v1"),
-		ObjectMeta: createObjectMeta(data.Name, data.Namespace, addmap(data.DefaultLabels, data.UserLabls), data.Annotations),
-		Spec: buildv1.BuildConfigSpec{
-			CommonSpec: buildv1.CommonSpec{
-				Output: buildv1.BuildOutput{
-					To: &corev1.ObjectReference{
-						Kind: "ImageStreamTag",
-						Name: data.Name + ":latest",
-					},
-				},
-				Source: buildv1.BuildSource{
-					ContextDir: data.Git.Dir,
-					Git: &buildv1.GitBuildSource{
-						URI: data.Git.URL,
-						Ref: data.Git.Ref,
-					},
-					// SourceSecret: &corev1.LocalObjectReference{
-					// 	Name: data.Git.Secret,
-					// },
-				},
-				Strategy: buildv1.BuildStrategy{
-					Type: buildv1.DockerBuildStrategyType,
-					DockerStrategy: &buildv1.DockerBuildStrategy{
-						DockerfilePath: dockerfilePath,
-						Env:            data.Build.Env,
-					},
-				},
-			},
+	buildConfigParams := generator.BuildConfigParams{
+		TypeMeta:   generator.GetTypeMeta("BuildConfig", "build.openshift.io/v1"),
+		ObjectMeta: generator.GetObjectMeta(data.Name, data.Namespace, addmap(data.DefaultLabels, data.UserLabls), data.Annotations),
+		BuildConfigSpecParams: generator.BuildConfigSpecParams{
+			ImageStreamTagName: data.Name + ":latest", // TODO Post Dev Preview. Update as per proposal i.e.; use the image mentioned in the devfile and push build to it.
+			GitRef:             data.Git.Ref,
+			GitURL:             data.Git.URL,
+			BuildStrategy:      generator.GetDockerBuildStrategy(dockerfilePath, data.Build.Env), // TODO use the Dockerfile path from the devfile instead of assuming
 		},
 	}
-	return buildConfig
+
+	buildConfig := generator.GetBuildConfig(buildConfigParams)
+	buildConfig.Spec.CommonSpec.Source.ContextDir = data.Git.Dir
+
+	return *buildConfig
 }
 
-func getDeployResource() appsv1.Deployment {
+func getDeployResource() (appsv1.Deployment, error) {
 
-	deployment := appsv1.Deployment{
-		TypeMeta:   createTypeMeta("Deployment", "apps/v1"),
-		ObjectMeta: createObjectMeta(data.Name, data.Namespace, addmap(data.DefaultLabels, data.UserLabls), data.Annotations),
-		Spec: appsv1.DeploymentSpec{
-			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{"app": data.Name},
-			},
-			Replicas: data.Deployment.Replicas,
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: addmap(data.UserLabls, data.PodLabels),
-				},
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name:  data.Name,
-							Image: data.Name + ":latest",
-							Ports: data.Image.Ports,
-							Env:   data.Deployment.Env,
-							Resources: corev1.ResourceRequirements{
-								Limits:   corev1.ResourceList{},
-								Requests: corev1.ResourceList{},
-							},
-							// LivenessProbe:  &data.Healthchecks.LivenessProbe,
-							// ReadinessProbe: &data.Healthchecks.ReadinessProble,
-							// StartupProbe:   &data.Healthchecks.StartupProbe,
-						},
-					},
-				},
-			},
-		},
+	containers, err := generator.GetContainers(devfileObj)
+	if err != nil {
+		return appsv1.Deployment{}, err
 	}
 
-	return deployment
+	deployParams := generator.DeploymentParams{
+		TypeMeta:          generator.GetTypeMeta("Deployment", "apps/v1"),
+		ObjectMeta:        generator.GetObjectMeta(data.Name, data.Namespace, addmap(data.DefaultLabels, data.UserLabls), data.Annotations),
+		Containers:        containers,
+		PodSelectorLabels: map[string]string{"app": data.Name},
+	}
+
+	deployment := generator.GetDeployment(deployParams)
+
+	deployment.Spec.Template.ObjectMeta.Labels = addmap(data.UserLabls, data.PodLabels) // Update pod labels since service selector labels are data.PodLabels
+
+	return *deployment, nil
 }
 
-func getService() corev1.Service {
+func getService() (corev1.Service, error) {
 
-	service := corev1.Service{
-		TypeMeta:   createTypeMeta("Service", "v1"),
-		ObjectMeta: createObjectMeta(data.Name, data.Namespace, addmap(data.DefaultLabels, data.UserLabls), data.Annotations),
-		Spec: corev1.ServiceSpec{
-			Selector: data.PodLabels,
-			Ports: []corev1.ServicePort{
-				{
-					Name: fmt.Sprintf("%d-%s", data.Image.Ports[0].ContainerPort, strings.ToLower(fmt.Sprintf("%s", data.Image.Ports[0].Protocol))),
-					Port: data.Image.Ports[0].ContainerPort,
-					TargetPort: intstr.IntOrString{
-						Type:   intstr.Int,
-						IntVal: data.Image.Ports[0].ContainerPort,
-						StrVal: "",
-					},
-					Protocol: data.Image.Ports[0].Protocol,
-				},
-			},
-		},
+	serviceParams := generator.ServiceParams{
+		TypeMeta:       generator.GetTypeMeta("Service", "v1"),
+		ObjectMeta:     generator.GetObjectMeta(data.Name, data.Namespace, addmap(data.DefaultLabels, data.UserLabls), data.Annotations),
+		SelectorLabels: data.PodLabels,
 	}
-	return service
+
+	service, err := generator.GetService(devfileObj, serviceParams)
+	if err != nil {
+		return corev1.Service{}, err
+	}
+
+	return *service, nil
 }
 
-func getRoute() routev1.Route {
+func getRoutes(containerComponents []devfilev1.Component) routev1.Route {
 
-	route := routev1.Route{
-		TypeMeta:   createTypeMeta("Route", "route.openshift.io/v1"),
-		ObjectMeta: createObjectMeta(data.Name, data.Namespace, addmap(data.DefaultLabels, data.UserLabls), data.Annotations),
-		Spec: routev1.RouteSpec{
-			To: routev1.RouteTargetReference{
-				Kind: "Service",
-				Name: data.Name,
-			},
-			Host: data.RouteSpec.Hostname,
-			Path: data.RouteSpec.Path,
-			Port: &routev1.RoutePort{
-				TargetPort: intstr.IntOrString{
-					Type:   intstr.String,
-					IntVal: int32(0),
-					StrVal: fmt.Sprintf("%d-%s", data.Image.Ports[0].ContainerPort, strings.ToLower(fmt.Sprintf("%s", data.Image.Ports[0].Protocol))),
+	var routes []routev1.Route
+
+	for _, comp := range containerComponents {
+		for _, endpoint := range comp.Container.Endpoints {
+			if endpoint.Exposure == devfilev1.NoneEndpointExposure || endpoint.Exposure == devfilev1.InternalEndpointExposure {
+				continue
+			}
+			secure := false
+			if endpoint.Secure || endpoint.Protocol == "https" || endpoint.Protocol == "wss" {
+				secure = true
+			}
+			path := "/"
+			if endpoint.Path != "" {
+				path = endpoint.Path
+			}
+
+			routeParams := generator.RouteParams{
+				TypeMeta:   generator.GetTypeMeta("Route", "route.openshift.io/v1"),
+				ObjectMeta: generator.GetObjectMeta(data.Name, data.Namespace, addmap(data.DefaultLabels, data.UserLabls), data.Annotations),
+				RouteSpecParams: generator.RouteSpecParams{
+					ServiceName: data.Name,
+					PortNumber:  intstr.FromInt(endpoint.TargetPort),
+					Path:        path,
+					Secure:      secure,
 				},
-			},
-			WildcardPolicy: routev1.WildcardPolicyNone,
-		},
+			}
+
+			route := generator.GetRoute(routeParams)
+			routes = append(routes, *route)
+		}
 	}
 
-	return route
+	return routes[0]
 }
