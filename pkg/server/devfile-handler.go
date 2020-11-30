@@ -56,8 +56,8 @@ func (s *Server) devfileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	devfileResources := devfileResources{ // Replace calls with call to library functions, these can also be made arrays if expecting multiple objects
-		ImageStream:    getImageStream(containerComponents),
-		BuildResource:  getBuildResource(containerComponents),
+		ImageStream:    getImageStream(),
+		BuildResource:  getBuildResource(),
 		DeployResource: deploymentResource,
 		Service:        service,
 		Route:          getRoutes(containerComponents),
@@ -76,26 +76,24 @@ func (s *Server) devfileHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func getImageStream(containerComponents []devfilev1.Component) imagev1.ImageStream {
+func getImageStream() imagev1.ImageStream {
 
 	imageStreamParams := generator.ImageStreamParams{
-		TypeMeta:   generator.GetTypeMeta("ImageStream", "image.openshift.io/v1"),
-		ObjectMeta: generator.GetObjectMeta(data.Name, data.Namespace, addmap(data.DefaultLabels, data.UserLabls), data.Annotations), // TODO Post Dev Preview. image stream name should be able to be that of the devfile image name.
+		TypeMeta: generator.GetTypeMeta("ImageStream", "image.openshift.io/v1"),
 	}
 	imageStream := generator.GetImageStream(imageStreamParams)
 	return imageStream
 }
 
-func getBuildResource(containerComponents []devfilev1.Component) buildv1.BuildConfig {
+func getBuildResource() buildv1.BuildConfig {
 
 	buildConfigParams := generator.BuildConfigParams{
-		TypeMeta:   generator.GetTypeMeta("BuildConfig", "build.openshift.io/v1"),
-		ObjectMeta: generator.GetObjectMeta(data.Name, data.Namespace, addmap(data.DefaultLabels, data.UserLabls), data.Annotations),
+		TypeMeta: generator.GetTypeMeta("BuildConfig", "build.openshift.io/v1"),
 		BuildConfigSpecParams: generator.BuildConfigSpecParams{
 			ImageStreamTagName: data.Name + ":latest", // TODO Post Dev Preview. Update as per proposal i.e.; use the image mentioned in the devfile and push build to it.
 			GitRef:             data.Git.Ref,
 			GitURL:             data.Git.URL,
-			BuildStrategy:      generator.GetDockerBuildStrategy(dockerfilePath, data.Build.Env), // TODO use the Dockerfile path from the devfile instead of assuming
+			BuildStrategy:      generator.GetDockerBuildStrategy(dockerfilePath, nil), // TODO use the Dockerfile path from the devfile instead of assuming
 		},
 	}
 
@@ -114,14 +112,11 @@ func getDeployResource() (appsv1.Deployment, error) {
 
 	deployParams := generator.DeploymentParams{
 		TypeMeta:          generator.GetTypeMeta("Deployment", "apps/v1"),
-		ObjectMeta:        generator.GetObjectMeta(data.Name, data.Namespace, addmap(data.DefaultLabels, data.UserLabls), data.Annotations),
 		Containers:        containers,
 		PodSelectorLabels: map[string]string{"app": data.Name},
 	}
 
 	deployment := generator.GetDeployment(deployParams)
-
-	deployment.Spec.Template.ObjectMeta.Labels = addmap(data.UserLabls, data.PodLabels) // Update pod labels since service selector labels are data.PodLabels
 
 	return *deployment, nil
 }
@@ -129,9 +124,7 @@ func getDeployResource() (appsv1.Deployment, error) {
 func getService() (corev1.Service, error) {
 
 	serviceParams := generator.ServiceParams{
-		TypeMeta:       generator.GetTypeMeta("Service", "v1"),
-		ObjectMeta:     generator.GetObjectMeta(data.Name, data.Namespace, addmap(data.DefaultLabels, data.UserLabls), data.Annotations),
-		SelectorLabels: data.PodLabels,
+		TypeMeta: generator.GetTypeMeta("Service", "v1"),
 	}
 
 	service, err := generator.GetService(devfileObj, serviceParams)
@@ -161,8 +154,7 @@ func getRoutes(containerComponents []devfilev1.Component) routev1.Route {
 			}
 
 			routeParams := generator.RouteParams{
-				TypeMeta:   generator.GetTypeMeta("Route", "route.openshift.io/v1"),
-				ObjectMeta: generator.GetObjectMeta(data.Name, data.Namespace, addmap(data.DefaultLabels, data.UserLabls), data.Annotations),
+				TypeMeta: generator.GetTypeMeta("Route", "route.openshift.io/v1"),
 				RouteSpecParams: generator.RouteSpecParams{
 					ServiceName: data.Name,
 					PortNumber:  intstr.FromInt(endpoint.TargetPort),
