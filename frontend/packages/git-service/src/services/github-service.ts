@@ -148,7 +148,7 @@ export class GithubService extends BaseService {
       const resp = await this.client.repos.getContents({
         owner: this.metadata.owner,
         repo: this.metadata.repoName,
-        path: 'devfile.yaml',
+        path: './mydir/devfile.yaml',
       });
       if (resp.status === 200) {
         // eslint-disable-next-line dot-notation

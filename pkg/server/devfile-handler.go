@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path"
 
 	buildv1 "github.com/openshift/api/build/v1"
 	imagev1 "github.com/openshift/api/image/v1"
@@ -88,6 +89,17 @@ func (s *Server) devfileHandler(w http.ResponseWriter, r *http.Request) {
 		serverutils.SendResponse(w, http.StatusBadRequest, serverutils.ApiError{Err: errMsg})
 		return
 	}
+
+	dockerRelativeSrcContext := devfileObj.Data.GetMetadata().Attributes.GetString("alpha.src-context", &err)
+	if err != nil {
+		errMsg := fmt.Sprintf("Failed to get the Dockerfile location from devfile metadata attribute 'alpha.src-context': %v", err)
+		klog.Error(errMsg)
+		serverutils.SendResponse(w, http.StatusBadRequest, serverutils.ApiError{Err: errMsg})
+		return
+	}
+
+	dockerContextDir := path.Join(data.Git.Dir, dockerRelativeSrcContext)
+	fmt.Printf(">>> MJF dockerContextDir is %v\n", dockerContextDir)
 
 	devfileResources := devfileResources{
 		ImageStream:    getImageStream(),
