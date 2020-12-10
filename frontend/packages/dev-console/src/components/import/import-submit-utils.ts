@@ -142,7 +142,7 @@ export const createOrUpdateBuildConfig = (
     project: { name: namespace },
     application: { name: applicationName },
     git: { url: repository, type: gitType, ref = 'master', dir: contextDir, secret: secretName },
-    // docker: { dockerfilePath },
+    docker: { dockerfilePath },
     image: { tag: selectedTag },
     build: { env, triggers, strategy: buildStrategy },
     labels: userLabels,
@@ -155,14 +155,16 @@ export const createOrUpdateBuildConfig = (
   const defaultAnnotations = { ...getGitAnnotations(repository, ref), ...getCommonAnnotations() };
   let buildStrategyData;
 
-  let { dockerfilePath } = formData.docker;
+  // let { dockerfilePath } = formData.docker;
+  let desiredContextDir = contextDir;
 
   switch (buildStrategy) {
     case 'Devfile':
-      dockerfilePath = originalBuildConfig.spec.strategy.dockerStrategy.dockerfilePath;
-      buildStrategyData = originalBuildConfig?.spec?.stategy || {
+      // dockerfilePath = originalBuildConfig.spec.strategy.dockerStrategy.dockerfilePath;
+      buildStrategyData = originalBuildConfig?.spec?.strategy || {
         dockerStrategy: { env, dockerfilePath },
       };
+      desiredContextDir = originalBuildConfig?.spec?.source?.contextDir || contextDir;
       break;
     case 'Docker':
       buildStrategyData = {
@@ -207,7 +209,7 @@ export const createOrUpdateBuildConfig = (
         },
       },
       source: {
-        contextDir,
+        contextDir: desiredContextDir,
         git: {
           uri: repository,
           ref,

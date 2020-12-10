@@ -82,7 +82,7 @@ func (s *Server) devfileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dockerfilePath := devfileObj.Data.GetMetadata().Attributes.GetString("alpha.build-dockerfile", &err)
+	dockerfileRelativePath := devfileObj.Data.GetMetadata().Attributes.GetString("alpha.build-dockerfile", &err)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to get the Dockerfile location from devfile metadata attribute 'alpha.build-dockerfile': %v", err)
 		klog.Error(errMsg)
@@ -90,20 +90,19 @@ func (s *Server) devfileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dockerRelativeSrcContext := devfileObj.Data.GetMetadata().Attributes.GetString("alpha.src-context", &err)
+	dockerRelativeSrcContext := devfileObj.Data.GetMetadata().Attributes.GetString("alpha.build-context", &err)
 	if err != nil {
-		errMsg := fmt.Sprintf("Failed to get the Dockerfile location from devfile metadata attribute 'alpha.src-context': %v", err)
+		errMsg := fmt.Sprintf("Failed to get the Dockerfile location from devfile metadata attribute 'alpha.build-context': %v", err)
 		klog.Error(errMsg)
 		serverutils.SendResponse(w, http.StatusBadRequest, serverutils.ApiError{Err: errMsg})
 		return
 	}
 
 	dockerContextDir := path.Join(data.Git.Dir, dockerRelativeSrcContext)
-	fmt.Printf(">>> MJF dockerContextDir is %v\n", dockerContextDir)
 
 	devfileResources := devfileResources{
 		ImageStream:    getImageStream(),
-		BuildResource:  getBuildResource(data, dockerfilePath),
+		BuildResource:  getBuildResource(data, dockerfileRelativePath, dockerContextDir),
 		DeployResource: deploymentResource,
 		Service:        service,
 		Route:          getRoutes(data, containerComponents),
@@ -128,7 +127,7 @@ func getImageStream() imagev1.ImageStream {
 	return imageStream
 }
 
-func getBuildResource(data devfileForm, dockerfilePath string) buildv1.BuildConfig {
+func getBuildResource(data devfileForm, dockerfilePath, contextDir string) buildv1.BuildConfig {
 
 	buildConfigParams := generator.BuildConfigParams{
 		TypeMeta: generator.GetTypeMeta("BuildConfig", "build.openshift.io/v1"),
@@ -136,7 +135,7 @@ func getBuildResource(data devfileForm, dockerfilePath string) buildv1.BuildConf
 			ImageStreamTagName: data.Name + ":latest", // TODO Post Dev Preview. Update as per proposal i.e.; use the image mentioned in the devfile and push build to it.
 			GitRef:             data.Git.Ref,
 			GitURL:             data.Git.URL,
-			ContextDir:         data.Git.Dir,
+			ContextDir:         contextDir,
 			BuildStrategy:      generator.GetDockerBuildStrategy(dockerfilePath, nil), // TODO use the Dockerfile path from the devfile instead of assuming
 		},
 	}
